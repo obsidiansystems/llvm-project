@@ -19,24 +19,34 @@
 
 #ifdef __linux__
 
-#include <unistd.h>
-#include <linux/futex.h>
-#include <sys/syscall.h>
+# include <unistd.h>
+# include <linux/futex.h>
+# include <sys/syscall.h>
 
 // libc++ uses SYS_futex as a universal syscall name. However, on 32 bit architectures
 // with a 64 bit time_t, we need to specify SYS_futex_time64.
-#if !defined(SYS_futex) && defined(SYS_futex_time64)
-# define SYS_futex SYS_futex_time64
-#endif
+# if !defined(SYS_futex) && defined(SYS_futex_time64)
+#  define SYS_futex SYS_futex_time64
+# endif
+# define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
 
 #elif defined(__FreeBSD__)
 
-#include <sys/types.h>
-#include <sys/umtx.h>
+# include <sys/types.h>
+# include <sys/umtx.h>
+
+# define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
+
+#elif defined(__OpenBSD__)
+
+// OpenBSD has no indirect syscalls
+# define _LIBCPP_FUTEX(...) futex(__VA_ARGS__)
 
 #else // <- Add other operating systems here
 
 // Baseline needs no new headers
+
+# define _LIBCPP_FUTEX(...) syscall(SYS_futex, __VA_ARGS__)
 
 #endif
 
@@ -48,13 +58,13 @@ static void __libcpp_platform_wait_on_address(__cxx_atomic_contention_t const vo
                                               __cxx_contention_t __val)
 {
     static constexpr timespec __timeout = { 2, 0 };
-    syscall(SYS_futex, __ptr, FUTEX_WAIT_PRIVATE, __val, &__timeout, 0, 0);
+    _LIBCPP_FUTEX(__ptr, FUTEX_WAIT_PRIVATE, __val, &__timeout, 0, 0);
 }
 
 static void __libcpp_platform_wake_by_address(__cxx_atomic_contention_t const volatile* __ptr,
                                               bool __notify_one)
 {
-    syscall(SYS_futex, __ptr, FUTEX_WAKE_PRIVATE, __notify_one ? 1 : INT_MAX, 0, 0, 0);
+    _LIBCPP_FUTEX(__ptr, FUTEX_WAKE_PRIVATE, __notify_one ? 1 : INT_MAX, 0, 0, 0);
 }
 
 #elif defined(__APPLE__) && defined(_LIBCPP_USE_ULOCK)
